@@ -32,14 +32,16 @@ Usage
   omp-deck --help             Show this message
   omp-deck --version          Print the version
 
-The server takes no flags: an unrecognized option is rejected instead of being
-forwarded, so a typo cannot leave an unnoticed server running.
+The server takes no options or positional arguments: anything else is rejected
+instead of being forwarded, so a typo cannot leave an unnoticed server running.
+The shim itself sets defaults for OMP_DECK_WEB_DIST, OMP_DECK_STARTER_SKILLS_DIR,
+OMP_DECK_STARTER_EXTENSIONS_DIR and OMP_DECK_DEFAULT_CWD; docs/deployment.md
+covers the rest.
 
 Environment (most-used; see docs/deployment.md for the full list)
   OMP_DECK_HOST               Bind host                      (default 127.0.0.1)
   OMP_DECK_PORT               HTTP/WebSocket port            (default 8787)
   OMP_DECK_DATA_DIR           deck.db + uploads              (default ~/.omp-deck)
-  OMP_DECK_ALLOWED_ORIGINS    Extra browser origins allowed to call the API
   OMP_DECK_WEB_PORT           Vite dev server port, dev mode (default 5173)
 
 Docs: https://github.com/bjb2/omp-deck
@@ -47,14 +49,16 @@ Docs: https://github.com/bjb2/omp-deck
 
 function fail(msg) {
 	console.error(`omp-deck: ${msg}`);
-	process.exit(1);
+	// Exit code rather than process.exit(): stderr must drain when it is a pipe
+	// (CI capture), and callers return, so nothing keeps the loop alive.
+	process.exitCode = 1;
 }
 
 function ensureBun() {
 	const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["bun"], {
 		stdio: ["ignore", "pipe", "ignore"],
 	});
-	if (probe.status === 0 && probe.stdout.toString().trim().length > 0) return;
+	if (probe.status === 0 && probe.stdout.toString().trim().length > 0) return true;
 	console.error("omp-deck requires Bun (https://bun.sh) — not found on PATH.");
 	console.error("");
 	console.error("Install:");
@@ -62,7 +66,8 @@ function ensureBun() {
 	console.error("  powershell -c \"irm bun.sh/install.ps1 | iex\"  (Windows)");
 	console.error("");
 	console.error("Then re-run: omp-deck");
-	process.exit(127);
+	process.exitCode = 127;
+	return false;
 }
 
 function resolveDataDir() {
@@ -73,31 +78,52 @@ function resolveDataDir() {
 
 function main() {
 	// Argument handling comes first: `--help`/`--version` must work even when
-	// Bun is missing (that is when the install message matters most), and an
-	// unknown flag must not fall through to a server that ignores it — that is
-	// how a stray `--help` ended up leaving an unattended instance on :8787.
+	// Bun is missing (that is when the install message matters most), and no
+	// other input may fall through to a server that ignores it — a stray
+	// `--help`, or a dash-less look-alike like `omp-deck help`, used to leave an
+	// unattended instance on :8787 with the operator's real home.
+	//
+	// Nothing here calls process.exit(): these paths `return` instead, so stdout
+	// is flushed even when it is a pipe (the CI matrix captures it) and the exit
+	// code stays truthful.
+	//
+	// The policy is deliberately total: nothing consumes arguments (the server
+	// only re-execs argv on restart), so anything other than exactly
+	// `-h`/`--help`/`-v`/`--version` — positionals, `--`, bare `-` included — is
+	// rejected rather than forwarded.
+	//
+	// Caveat: a bare `--` never reaches this code when the shim is launched by
+	// `bun`, because the launcher consumes it before the script sees argv. It is
+	// rejected normally under `node`, which is what the npm bin shim uses.
 	const args = process.argv.slice(2);
-	for (const arg of args) {
-		if (arg === "-h" || arg === "--help") {
-			process.stdout.write(USAGE);
-			process.exit(0);
+	const unexpected = args.find((arg) => !["-h", "--help", "-v", "--version"].includes(arg));
+	if (unexpected !== undefined) {
+		console.error(`omp-deck: unexpected argument '${unexpected}'`);
+		console.error("The server takes no options or positional arguments. Run `omp-deck --help` for usage.");
+		process.exitCode = 2;
+		return;
+	}
+	if (args.includes("-h") || args.includes("--help")) {
+		process.stdout.write(USAGE);
+		return;
+	}
+	if (args.includes("-v") || args.includes("--version")) {
+		let version;
+		try {
+			version = JSON.parse(readFileSync(path.join(PKG_ROOT, "package.json"), "utf8")).version;
+		} catch (err) {
+			fail(`cannot read package.json: ${err.message}`);
+			return;
 		}
-		if (arg === "-v" || arg === "--version") {
-			const pkg = JSON.parse(readFileSync(path.join(PKG_ROOT, "package.json"), "utf8"));
-			process.stdout.write(`${pkg.version}\n`);
-			process.exit(0);
-		}
-		if (arg.startsWith("-")) {
-			console.error(`omp-deck: unknown option '${arg}'`);
-			console.error("Run `omp-deck --help` for usage.");
-			process.exit(2);
-		}
+		process.stdout.write(`${version}\n`);
+		return;
 	}
 
 	if (!existsSync(SERVER_ENTRY)) {
 		fail(`server entry missing at ${SERVER_ENTRY} — broken install?`);
+		return;
 	}
-	ensureBun();
+	if (!ensureBun()) return;
 
 	const dataDir = resolveDataDir();
 	mkdirSync(dataDir, { recursive: true });
