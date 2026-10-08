@@ -18,18 +18,12 @@ name: Publish
 #
 # Re-running a tag is safe: versions already on the registry *and owned by us*
 # are skipped. It does NOT repair the versions published under the old scheme —
-# `workflow_dispatch` only runs a workflow that exists on the selected ref, and
-# the release tags predate this file, so those need a one-off publish from a
-# checkout of each tag. Two traps there, verified on v0.6.1: the manifest is
-# still `private: true` with no `files` allowlist, and npm does not fail on that
-# — it *skips* the private workspace, prints "Skipping workspace … marked as
-# private" and exits 0, even after flipping `private`. Require the dry-run output
-# to contain no such line, and publish from outside the repo if it persists.
-# From the next release on, `@omp-deck/protocol` is published alongside
-# `omp-deck`, which is what #16 needs (installs that do not resolve
-# `bundledDependencies` — bun — cannot proceed without that name on the
-# registry). Dispatch runs are dry by default and can only publish when
-# dispatched on a tag ref.
+# those need a one-off manual publish per tag, with two traps; both are spelled
+# out in the companion issue on the fork (and the PR description). From the next
+# release on, `@omp-deck/protocol` is published alongside `omp-deck`, which is
+# what #16 needs (installs that do not resolve `bundledDependencies` — bun —
+# cannot proceed without that name on the registry). Dispatch runs are dry by
+# default and can only publish when dispatched on a tag ref.
 #
 # Required repository secret: NPM_TOKEN — an npm automation token for a user
 # that owns the `@omp-deck` scope and the `omp-deck` package. Provenance needs a
