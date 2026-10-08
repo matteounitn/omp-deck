@@ -57,6 +57,14 @@ export const ENV_SCHEMA: EnvSchemaEntry[] = [
 		description: "Comma-separated extra workspace roots.",
 	},
 	{
+		key: "OMP_DECK_ALLOWED_ORIGINS",
+		valueType: "string",
+		sensitive: false,
+		restartRequired: true,
+		hotApply: false,
+		description: "Comma-separated extra browser origins allowed to call the API (Origin/Host guard; the Vite dev origins are allowed only in dev mode).",
+	},
+	{
 		key: "OMP_DECK_IDLE_TIMEOUT_MS",
 		defaultValue: "300000",
 		valueType: "int",

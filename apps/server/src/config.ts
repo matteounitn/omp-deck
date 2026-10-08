@@ -22,6 +22,14 @@ export interface Config {
 	 * ~/.omp/agent/commands/start.md slash command if present).
 	 */
 	autoStartCommand: string | null;
+	/**
+	 * Browser origins accepted in addition to a matching Origin/Host pair (see
+	 * request-guard.ts). Needed when something in front rewrites Host: the Vite
+	 * dev server (changeOrigin: true) makes the browser's `:<webPort>` origin no
+	 * longer match the Host we receive, so the loopback dev origins are included
+	 * by default. Extend with OMP_DECK_ALLOWED_ORIGINS (comma-separated).
+	 */
+	allowedOrigins: string[];
 }
 
 export function parseInt10(value: string | undefined, fallback: number): number {
@@ -73,15 +81,19 @@ export function loadConfig(): Config {
 	const extra = splitList(process.env.OMP_DECK_WORKSPACES);
 	const agentDir = process.env.OMP_AGENT_DIR?.trim() || undefined;
 	const webDist = resolveWebDist();
+	const host = process.env.OMP_DECK_HOST?.trim() || "127.0.0.1";
+	const webPort = process.env.OMP_DECK_WEB_PORT?.trim() || "5173";
+	const devMode = process.env.NODE_ENV !== "production";
+	const packaged = process.env.OMP_DECK_PACKAGED === "1";
 
 	return {
-		host: process.env.OMP_DECK_HOST?.trim() || "127.0.0.1",
+		host,
 		port: parseInt10(process.env.OMP_DECK_PORT, 8787),
 		defaultCwd: path.resolve(defaultCwd),
 		extraWorkspaces: extra.map((p) => path.resolve(p)),
 		agentDir,
 		webDist,
-		devMode: process.env.NODE_ENV !== "production",
+		devMode,
 		// 5 minutes default. Set to 0 to disable reaping (kernels live until SIGINT).
 		idleTimeoutMs: parseInt10(process.env.OMP_DECK_IDLE_TIMEOUT_MS, 5 * 60_000),
 		dbPath: path.resolve(
@@ -105,5 +117,15 @@ export function loadConfig(): Config {
 		// Set OMP_DECK_AUTO_START="" or "0" to disable, or to any other prompt
 		// string to override the default "/start" slash-command invocation.
 		autoStartCommand: parseAutoStart(process.env.OMP_DECK_AUTO_START),
+		allowedOrigins: [
+			...splitList(process.env.OMP_DECK_ALLOWED_ORIGINS),
+			// `bun run dev` only: the browser loads the UI from the Vite dev server
+			// and Vite proxies /api to us with changeOrigin, so Origin (:5173) and
+			// Host (:port) differ. A packaged install (OMP_DECK_PACKAGED, set by
+			// bin/omp-deck.mjs) and production mode never get them — allowlist such
+			// origins explicitly via OMP_DECK_ALLOWED_ORIGINS instead. Residual: a
+			// source `bun run start` with NODE_ENV unset still counts as dev.
+			...(devMode && !packaged ? [`http://${host}:${webPort}`, `http://localhost:${webPort}`] : []),
+		],
 	};
 }

@@ -62,6 +62,11 @@ function main() {
 
 	const env = { ...process.env };
 	// Only set defaults — let user overrides win.
+	// Deck-private signal (never NODE_ENV: this env is inherited by routine
+	// `bash -lc` steps and the agent's bash tool, where NODE_ENV=production
+	// silently changes the user's own builds). It tells the server it is a
+	// packaged install, so the Vite dev origins are not auto-allowed.
+	env.OMP_DECK_PACKAGED ??= "1";
 	env.OMP_DECK_DB_PATH ??= path.join(dataDir, "deck.db");
 	env.OMP_DECK_UPLOADS_ROOT ??= path.join(dataDir, "uploads");
 	env.OMP_DECK_WEB_DIST ??= WEB_DIST;

@@ -5,6 +5,18 @@ loopback-only with network access gated by something else — Tailscale, an SSH
 tunnel, or a reverse proxy with its own auth. Do not bind it to a public
 interface without one of these.
 
+"Loopback-only" is not a boundary against the browser running on the same
+machine: a page the operator visits can POST to the deck as a CORS *simple
+request* (no preflight) and can open its WebSocket, which CORS does not cover.
+The server therefore rejects requests whose `Origin` does not match `Host`, and
+requires `application/json` on mutating API routes (see
+`apps/server/src/request-guard.ts`). Add non-matching origins — for example a
+dev server or a proxy that rewrites `Host` — through
+`OMP_DECK_ALLOWED_ORIGINS` (comma-separated); the Vite dev origins are allowed
+only in a source dev run — `NODE_ENV !== "production"` **and** no
+`OMP_DECK_PACKAGED` (the packaged CLI passes that flag, the Dockerfile sets
+`production`).
+
 ## Patterns
 
 - [Tailscale-gated (recommended)](#tailscale-gated-recommended)
@@ -112,6 +124,11 @@ Before exposing the deck on a network anyone else can reach:
 - [ ] `OMP_DECK_HOST=127.0.0.1` (default). Confirm with `ss -tlnp` or `netstat`.
 - [ ] Front it with Tailscale Serve, an SSH tunnel, or a reverse proxy that
       enforces auth. Never bind `0.0.0.0` without one.
+- [ ] The Origin/Host guard is active (it is by default). Every entry you add to
+      `OMP_DECK_ALLOWED_ORIGINS` is an origin that can drive the API from a
+      browser — only add origins you own.
+- [ ] Treat any page open in a browser on the deck host as untrusted: the guard
+      blocks cross-site requests, but it is not an auth layer.
 - [ ] Provider API keys live in env vars (via shell profile or the deck's
       managed `.env`) — never committed in the repo or shipped in an image.
 - [ ] The data dir (`OMP_DECK_DATA_DIR`) is user-only readable. `chmod 700` on

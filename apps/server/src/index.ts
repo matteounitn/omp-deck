@@ -16,6 +16,7 @@ import { loadConfig } from "./config.ts";
 import { logger } from "./log.ts";
 import { resolveBunExecutable } from "./runtime-bun.ts";
 import { primeUpdateCheckOnBoot } from "./update-check.ts";
+import { guardRequest } from "./request-guard.ts";
 import { buildRouter } from "./routes.ts";
 import { WsHub, type ConnectionData } from "./ws.ts";
 import { MarketplaceService } from "./marketplace-service.ts";
@@ -127,7 +128,12 @@ async function main(): Promise<void> {
 		fetch(req, srv) {
 			const url = new URL(req.url);
 
+			// Reject cross-origin browser traffic before anything is dispatched:
+			// loopback is reachable by any page open in the operator's browser
+			// (simple requests skip the preflight, WS ignores CORS entirely).
 			if (url.pathname === "/ws") {
+				const denied = guardRequest(req, { allowedOrigins: config.allowedOrigins });
+				if (denied) return denied;
 				const data = ws.createConnectionData();
 				const upgraded = srv.upgrade(req, { data });
 				if (upgraded) return undefined;
@@ -135,6 +141,11 @@ async function main(): Promise<void> {
 			}
 
 			if (url.pathname.startsWith("/api/")) {
+				const denied = guardRequest(req, {
+					allowedOrigins: config.allowedOrigins,
+					apiPath: url.pathname.slice(4),
+				});
+				if (denied) return denied;
 				const trimmed = new URL(req.url);
 				trimmed.pathname = url.pathname.slice(4) || "/";
 				return router.fetch(new Request(trimmed.toString(), req));
