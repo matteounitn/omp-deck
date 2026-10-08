@@ -12,7 +12,7 @@
 // actionable install message instead of an ENOENT.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,26 @@ const SERVER_ENTRY = path.join(PKG_ROOT, "apps", "server", "src", "index.ts");
 const WEB_DIST = path.join(PKG_ROOT, "apps", "web", "dist");
 const STARTER_SKILLS = path.join(PKG_ROOT, "starter-skills");
 const STARTER_EXTENSIONS = path.join(PKG_ROOT, "starter-extensions");
+
+const USAGE = `omp-deck — local web cockpit for the omp (oh-my-pi) coding agent
+
+Usage
+  omp-deck                    Start the server (loopback by default)
+  omp-deck --help             Show this message
+  omp-deck --version          Print the version
+
+The server takes no flags: an unrecognized option is rejected instead of being
+forwarded, so a typo cannot leave an unnoticed server running.
+
+Environment (most-used; see docs/deployment.md for the full list)
+  OMP_DECK_HOST               Bind host                      (default 127.0.0.1)
+  OMP_DECK_PORT               HTTP/WebSocket port            (default 8787)
+  OMP_DECK_DATA_DIR           deck.db + uploads              (default ~/.omp-deck)
+  OMP_DECK_ALLOWED_ORIGINS    Extra browser origins allowed to call the API
+  OMP_DECK_WEB_PORT           Vite dev server port, dev mode (default 5173)
+
+Docs: https://github.com/bjb2/omp-deck
+`;
 
 function fail(msg) {
 	console.error(`omp-deck: ${msg}`);
@@ -52,6 +72,28 @@ function resolveDataDir() {
 }
 
 function main() {
+	// Argument handling comes first: `--help`/`--version` must work even when
+	// Bun is missing (that is when the install message matters most), and an
+	// unknown flag must not fall through to a server that ignores it — that is
+	// how a stray `--help` ended up leaving an unattended instance on :8787.
+	const args = process.argv.slice(2);
+	for (const arg of args) {
+		if (arg === "-h" || arg === "--help") {
+			process.stdout.write(USAGE);
+			process.exit(0);
+		}
+		if (arg === "-v" || arg === "--version") {
+			const pkg = JSON.parse(readFileSync(path.join(PKG_ROOT, "package.json"), "utf8"));
+			process.stdout.write(`${pkg.version}\n`);
+			process.exit(0);
+		}
+		if (arg.startsWith("-")) {
+			console.error(`omp-deck: unknown option '${arg}'`);
+			console.error("Run `omp-deck --help` for usage.");
+			process.exit(2);
+		}
+	}
+
 	if (!existsSync(SERVER_ENTRY)) {
 		fail(`server entry missing at ${SERVER_ENTRY} — broken install?`);
 	}
@@ -71,7 +113,6 @@ function main() {
 	// The agent's own session cwd is independent and still defaults to $HOME.
 	env.OMP_DECK_DEFAULT_CWD ??= os.homedir();
 
-	const args = process.argv.slice(2);
 	const child = spawn("bun", [SERVER_ENTRY, ...args], {
 		stdio: "inherit",
 		env,
