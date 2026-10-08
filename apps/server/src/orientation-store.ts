@@ -128,8 +128,31 @@ export function getEffectivePrelude(): string {
 
 // ─── /start command ────────────────────────────────────────────────────────
 
+/**
+ * Root of the omp agent dir (commands, extensions).
+ *
+ * The home directory comes from the environment — `USERPROFILE` on Windows
+ * (there `HOME` can be a POSIX-style Git Bash/MSYS path that `path.join` would
+ * resolve against the current drive) and `HOME` elsewhere — falling back to
+ * `os.homedir()`, which Bun resolves once at process start. That cached value is
+ * why these paths used to ignore overrides: the suite's temp home had no effect
+ * and it wrote into the developer's real profile.
+ *
+ * No relocation knob is consulted on purpose. The SDK resolves its directories
+ * through `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` (`@oh-my-pi/pi-utils`
+ * `getAgentDir()`), while this server reads `OMP_AGENT_DIR` into
+ * `config.agentDir` and never acts on it — a mismatch worth fixing across every
+ * deck path (starter skills, starter extensions, the skills watcher), not only
+ * here.
+ */
+function agentRoot(): string {
+	const fromEnv =
+		process.platform === "win32" ? process.env.USERPROFILE?.trim() : process.env.HOME?.trim();
+	return path.join(fromEnv || os.homedir(), ".omp", "agent");
+}
+
 export function getStartCommandPath(): string {
-	return path.join(os.homedir(), ".omp", "agent", "commands", "start.md");
+	return path.join(agentRoot(), "commands", "start.md");
 }
 
 export interface StartCommand {
@@ -252,9 +275,7 @@ export function readMaintenanceGateState(): MaintenanceGateState {
 	const enabled = !isTruthy(disabled.rawValue);
 
 	const installedExtensionPath = path.join(
-		os.homedir(),
-		".omp",
-		"agent",
+		agentRoot(),
 		"extensions",
 		"maintenance-gate",
 		"index.ts",

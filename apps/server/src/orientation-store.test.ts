@@ -35,9 +35,10 @@ beforeEach(() => {
 	tmpDataDir = mkdtempSync(path.join(os.tmpdir(), "omp-deck-orient-data-"));
 	tmpHomeDir = mkdtempSync(path.join(os.tmpdir(), "omp-deck-orient-home-"));
 	process.env.OMP_DECK_DATA_DIR = tmpDataDir;
-	// os.homedir() honors USERPROFILE on Windows and HOME on POSIX. Override
-	// both so the test never writes to the real user home no matter which
-	// platform Bun picks up.
+	// The agent-dir paths (commands/start.md, extensions/…) read the home dir
+	// from the environment, falling back to os.homedir() — which Bun resolves
+	// once at process start and cannot be re-pointed mid-run. That cached value
+	// is why this suite used to write into the developer's real profile.
 	process.env.HOME = tmpHomeDir;
 	process.env.USERPROFILE = tmpHomeDir;
 	for (const k of ENV_KEYS) {
@@ -89,12 +90,18 @@ describe("prelude override", () => {
 });
 
 describe("start command", () => {
+	test("agent-dir paths follow the process home", () => {
+		expect(readStartCommand().path.startsWith(tmpHomeDir)).toBe(true);
+		writeStartCommand("desc", "body\n");
+		expect(existsSync(path.join(tmpHomeDir, ".omp", "agent", "commands", "start.md"))).toBe(true);
+	});
+
 	test("missing file returns exists=false with empty fields", () => {
 		const cmd = readStartCommand();
 		expect(cmd.exists).toBe(false);
 		expect(cmd.description).toBe("");
 		expect(cmd.body).toBe("");
-		expect(cmd.path.endsWith(path.join(".omp", "agent", "commands", "start.md"))).toBe(true);
+		expect(cmd.path).toBe(path.join(tmpHomeDir, ".omp", "agent", "commands", "start.md"));
 	});
 
 	test("write + read round-trips description and body verbatim", () => {
